@@ -1,0 +1,371 @@
+// LAST TRANSACTION DATE
+
+last_trans_date = MAX('FactTable'[Order Date])
+
+// PREVIOUS VALUE IN A COLUMN
+
+Previous Week Order = 
+    VAR Customername = 'FactTable'[company_name]
+    VAR activeweeks = 'FactTable'[Week Since First Order]
+
+    RETURN
+        CALCULATE(
+            MAX('FactTable'[Week Since First Order]),
+                FILTER('FactTable',
+                        'FactTable'[company_name] = Customername &&
+                        'FactTable'[Week Since First Order] < activeweeks)
+        )
+
+
+// RECURRENCE OF PURCHASE EVERY WEEK/MONTH
+
+- Week
+    Week Since First Order = 
+    DATEDIFF(
+        MIN('FactTable'[OrderDate]), //First Customer Purchase Date
+        ([OrderDate]-WEEKDAY([OrderDate])+1), //Start of the Week for that Purchase
+        WEEK
+        )
+
+- Month
+    Month Since First Order = 
+    DATEDIFF(
+        MIN('FactTable'[OrderDate]), //First Customer Purchase Date
+        (STARTOFMONTH([OrderDate])), //Start of the Month for that Purchase
+        MONTH
+        )
+
+// DYNAMIC FORMATTING FOR CUSTOM LABELLING
+
+Dynamic Format = 
+    VAR _FormatColumn = [total amount]
+    VAR _Number = 
+            SWITCH( TRUE(),
+                _FormatColumn < 1000, _FormatColumn,
+                _FormatColumn < 1000000, DIVIDE( _FormatColumn, 1000),
+                _FormatColumn < 1000000000, DIVIDE( _FormatColumn, 1000000),
+                DIVIDE( _FormatColumn, 1000000000)
+            )
+    VAR _NumFormat =
+            SWITCH( TRUE(),
+                _FormatColumn < 1000, "##0",
+                _FormatColumn < 1000000, "##0.0," & "k",
+                _FormatColumn < 1000000000, "##00.0,," & "M",
+                "##0.0,,," & "B"
+            )
+    VAR Result = 
+            IF( _FormatColumn = -9999,
+                "Value not selected",
+                FORMAT( _Number, _NumFormat )
+            )
+ RETURN Result
+
+ // DAY SINCE LAST TRANSACTION OF A CUSTOMER
+
+ Day Since Last Trans = 
+    VAR All_customer_last_trans_date =
+                    MAXX(
+                        ALL('FactTable'),
+                            'FactTable'[Order Date]
+                    )
+    VAR individual_customer_last_trans_date =
+                    CALCULATE(
+                        LASTDATE('FactTable'[Order Date]),
+                        'FactTable'[company_name]
+                    )
+
+    RETURN
+        DATEDIFF(
+            individual_customer_last_trans_date,
+            All_customer_last_trans_date,
+            DAY
+        )
+
+// AVERAGE MONTHLY VALUES
+
+Avg Monthly Revenue =
+    AVERAGEX(
+        VALUES('Date Table'[MonthYear]),
+        [total amount]
+    )
+
+// HOW TO GET NEW CUSTOMERS
+
+New Customer = 
+    VAR churn_period_start = MAX('FactTable'[Order Date]) - 60  //Looking back to last 60 days from the last order date
+    VAR current_customer = VALUES('FactTable'[company_id])
+
+    VAR previous_customer =
+                CALCULATETABLE(
+                        VALUES('FactTable'[company_id]),
+                        FILTER(ALL('FactTable'),
+                            AND('FactTable'[Order Date] > MIN('FactTable'[Order Date]),
+                                'FactTable'[Order Date] < churn_period_start
+                                )
+                            )
+                        )
+
+    RETURN
+        COUNTROWS(
+            EXCEPT(current_customer, previous_customer)) //look for customers in the first table but not in the second table
+
+// HOW TO GET CHURNED CUSTOMERS
+
+Churned Customers = 
+VAR churned_period = MAX('FactTable'[Order Date]) - 60  //Loooking back to last 60 days from today
+VAR churned_customers =     
+FILTER(         
+      SUMMARIZE(             
+              'FactTable',            
+              'FactTable'[company_id],            
+             "Maximum Transaction Date",             
+            MAX('FactTable'[Order Date])        
+                ),         
+          [Maximum Transaction Date] < churned_period // Use DATE instead of Date     )
+)
+RETURN     
+    COUNTROWS(churned_customers)
+
+// Creating a Table with DAX
+
+Measure Selection = 
+DATATABLE(
+    "Measure Name", STRING,
+    "Sort", INTEGER,
+    {
+        {"Customers", 1},
+        {"Customers Retained", 2}
+    }
+)
+
+// Conditional Measure Filters (alternative for Field Parameter) -- This is applicable in Power BI Report Server where Field Parameter is not available
+
+Switch Measure = 
+SWITCH(SELECTEDVALUE('Measure Selection'[Measure Name]),
+    "Customers", FORMAT([Customers], "#"),
+    "Customers Retained", FORMAT([Customer %], "#%"),
+    "Order", FORMAT([Orders], "#"),
+    ERROR("Please select a single valid measure to display")
+)
+
+Switch Measure Conditional Formatting = 
+SWITCH(SELECTEDVALUE('Measure Selection'[Measure Name]),
+    "Customers", [Customers],
+    "Customers Retained", [Customer %],
+    "orders", [Orders],
+    ERROR("Please select a single valid measure to display")
+)
+
+// ---------- FULL DATE TABLE (CALENDAR) -------------
+
+Date Table = 
+    VAR _startOfFiscalYear = 1 // set the month number that is start of the financial year. example; if fiscal year start is July, value is 7
+    VAR _today = TODAY()
+
+    RETURN
+        ADDCOLUMNS(
+            CALENDAR(
+                MIN ( 'FactTable'[OrderDate] ),
+                MAX ( 'FactTable'[OrderDate] )
+                ),
+            "Year",YEAR([Date]),
+            "Month",MONTH([Date]),            
+            "Month Name",FORMAT([Date],"MMMM"),
+            "Month Name Short",FORMAT([Date],"MMM"),
+            "Month & Day",FORMAT([Date],"MMM")&" "& DAY([Date]),
+            "Month & Year",FORMAT([Date],"MMM")&"-"&FORMAT([Date], "YYYY"),
+            "Start of Month", STARTOFMONTH([Date]),
+            "End of Month", EOMONTH([Date],1),
+            "Year Month Num",INT(FORMAT([Date],"YYYYMM")),
+            "Year Month Name",FORMAT([Date],"YYYY-MMM"),
+            "Quarter",QUARTER([Date]),
+            "Quarter Name","Q"&FORMAT([Date],"Q"),
+            "Year Quarter Num",INT(FORMAT([Date],"YYYYQ")),
+            "Year Quarter Name",FORMAT([Date],"YYYY")&" Q"&FORMAT([Date],"Q"),
+            "Week in Year",WEEKNUM([Date],1),
+            "Week & Day", "Wk " & WEEKNUM([Date],1)&" "&FORMAT([Date],"DDD"),
+            "Start of Week", [Date]-WEEKDAY([Date])+1,
+            "End of Week",[Date]+7-WEEKDAY([Date]),
+            "Day",DAY([Date]),
+            "Day Name",FORMAT([Date],"DDDD"),
+            "Day Name Short",FORMAT([Date],"DDD"),
+            "Days in Month",DATEDIFF(DATE( YEAR([Date]), MONTH([Date]), 1),EOMONTH([Date],0),DAY)+1,
+            "Day in Week",WEEKDAY([Date]),
+            "Day in Year",DATEDIFF(DATE( YEAR([Date]), 1, 1),[Date],DAY)+1,
+            "Fiscal Year",if(_startOfFiscalYear=1,YEAR([Date]),YEAR([Date])+ QUOTIENT(MONTH([Date])+ (13-_startOfFiscalYear),13)),
+            "Fiscal Quarter",QUARTER( DATE( YEAR([Date]),MOD( MONTH([Date])+ (13-_startOfFiscalYear) -1 ,12) +1,1) ),
+            "Fiscal Month",MOD( MONTH([Date])+ (13-_startOfFiscalYear) -1 ,12) +1,
+            "Day Offset",DATEDIFF(_today,[Date],DAY),
+            "Month Offset",DATEDIFF(_today,[Date],MONTH),
+            "Quarter Offset",DATEDIFF(_today,[Date],QUARTER),
+            "Year Offset",DATEDIFF(_today,[Date],YEAR)
+        )
+
+
+
+
+// ---------- TIME INTELLIGENCE -------------
+
+//Year-on-Year Changes
+YOY % = 
+    VAR current_year = [total amount]
+    VAR last_year = CALCULATE([total amount], SAMEPERIODLASTYEAR('Date Table'[Date]))
+    //VAR last_month = CALCULATE([total amount], DATEADD('Date Table'[Date], -1, YEAR))
+
+    RETURN
+        DIVIDE(current_year - last_year,last_year,0)
+
+//Month-on-Month Changes
+MOM % = 
+    VAR current_month = [total amount]
+    VAR last_month = CALCULATE([total amount], PARALLELPERIOD('Date Table'[Date], -1, MONTH))
+    //VAR last_month = CALCULATE([total amount], DATEADD('Date Table'[Date], -1, MONTH))
+
+    RETURN
+        DIVIDE(current_month - last_month,last_month,0)
+
+// Week-on-Week Changes
+WOW % = 
+    VAR sales_this_week = CALCULATE([total amount],
+                            FILTER(ALL('Date Table'), 'Date Table'[WeekRank] = MAX('Date Table'[WeekRank])))
+    VAR sales_last_week = CALCULATE([total amount],
+                        FILTER(ALL('Date Table'), 'Date Table'[WeekRank] = MAX('Date Table'[WeekRank])-1))
+
+    RETURN
+        DIVIDE(sales_this_week - sales_last_week, sales_last_week,0)
+
+// Week Rank
+WeekRank = RANKX(ALL('Date Table'), 'Date Table'[Start of Week],,ASC,Dense)
+
+// MTD Revenue
+Rev MTD = TOTALMTD([total amount], 'Date Table'[Date])
+
+// YTD Revenue
+Rev YTD = TOTALYTD([total amount], 'Date Table'[Date])
+
+
+//How to Calculate the Next Year
+
+Next Year = CALCULATE(
+                SUM('Table'[Value]),
+                (DATEADD('Table'[Date], 1, YEAR)))
+
+
+//How to Calculate Incremental Date by Days
+
+BiWeeklyDates =
+VAR StartDate = DATE(2020, 1, 1)
+VAR TodayDate = TODAY()
+VAR DaysBetween = DATEDIFF(StartDate, TodayDate, DAY)
+VAR BiWeeklyPeriods = DIVIDE(DaysBetween, 14)
+VAR BiWeeklyDatesList = ADDCOLUMNS(
+                            GENERATESERIES(0, BiWeeklyPeriods),
+                            "BiWeeklyDate", StartDate + ([Value] * 14)
+                        )
+
+RETURN
+    SELECTCOLUMNS(BiWeeklyDatesList, "BiWeeklyDate", [BiWeeklyDate])
+
+Another Method
+Datetable =
+var basedate = DATE(2023, 1, 1)
+var numrows = 365
+var increment = 14
+
+
+return
+ADDCOLUMNS(GENERATESERIES(0, numrows - 1, 1), "Date", basedate + [Value] * increment)
+
+
+// How to COUNTROWS with a condition
+
+YesRow = COUNTROWS(Filter(Table, Table[Value]="Yes"))
+
+
+// How to Filter a Row based on Condition
+
+FILTERED_TABLE =
+    FILTER(
+        TableName,
+        TableName[Account Type] = 0
+            && TableName[Age] > 18
+            && TableName[Age] <= 54
+    )
+
+
+// How to compare if a value exists in another table column
+= CALCULATE(
+    COUNTROWS(Table2),
+    FILTER( Table2, Table2[JobNum] = EARLIER(Table1[JobNum) ))
+How to Calculate the sum of sales in a table referencing from another table
+
+Total Sales by Shipment Days =
+CALCULATE(
+    SUM(Orders[Sales]),
+    USERELATIONSHIP(Orders[Ship Date], Calendar[Date])
+)
+
+How to Rename multiple values in a column in one step.
+
+#"AllReplace" = [#"Digital Energy Transactional" = "BMP", #"Home and Distribution" = "BMP", #"Low Voltage Transactional" = "BMP",#"UNASSIGNED" = "BMP",#"UNSPECIFIED" = "BMP"],
+    #"Replaced Value" = Table.TransformColumns(#"Changed Type",{{"Current Value",each Record.FieldOrDefault(AllReplace,_,_)}})
+How to remove special characters in a column in one step.
+
+Remove = Text.Select([Text String],{"A".."z","0".."9"})
+
+
+
+// How to calculate customer life-to-date
+
+Customers LTD =
+    VAR CustomersLTD =
+        CALCULATE(
+            DISTINCTCOUNT(Sales[CustomerKey]),
+            DATESBETWEEN(
+                'Date'[Date],
+                BLANK(),
+                MAX('Date'[Date])
+            ),
+            'Sales Order'[Channel] = "Internet"
+        )
+    RETURN
+        CustomersLTD
+
+Another
+New Customers =
+    VAR CustomersLTD =
+        CALCULATE(
+            DISTINCTCOUNT(Sales[CustomerKey]),
+            DATESBETWEEN(
+                'Date'[Date],
+                BLANK(),
+                MAX('Date'[Date])
+            ),
+        'Sales Order'[Channel] = "Internet"
+        )
+    VAR CustomersPrior =
+        CALCULATE(
+            DISTINCTCOUNT(Sales[CustomerKey]),
+            DATESBETWEEN(
+                'Date'[Date],
+                BLANK(),
+                MIN('Date'[Date]) - 1
+            ),
+            'Sales Order'[Channel] = "Internet"
+        )
+    RETURN
+        CustomersLTD - CustomersPrior
+
+
+// HOW TO GET NUMBERS OF RETURNING CUSTOMERS
+Returning Customer = 
+
+VAR Cust_this_month = VALUES('FactTable'[customerid])
+
+VAR prev_month_cust = CALCULATETABLE(
+                            VALUES('FactTable'[customerid]),
+                            DATEADD('Date Table'[Date], -1,MONTH))
+
+RETURN
+    COUNTROWS(INTERSECT(Cust_this_month,prev_month_cust))
+
