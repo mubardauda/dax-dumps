@@ -126,7 +126,7 @@ FILTER(
 RETURN     
     COUNTROWS(churned_customers)
 
-// Creating a Table with DAX
+// CREATING A TABLE WITH DAX
 
 Measure Selection = 
 DATATABLE(
@@ -138,7 +138,7 @@ DATATABLE(
     }
 )
 
-// Conditional Measure Filters (alternative for Field Parameter) -- This is applicable in Power BI Report Server where Field Parameter is not available
+// CONDITIONAL MEASURE FILTERS (alternative for Field Parameter) -- This is applicable in Power BI Report Server where Field Parameter is not available
 
 Switch Measure = 
 SWITCH(SELECTEDVALUE('Measure Selection'[Measure Name]),
@@ -271,7 +271,6 @@ Datetable =
 var basedate = DATE(2023, 1, 1)
 var numrows = 365
 var increment = 14
-
 
 return
 ADDCOLUMNS(GENERATESERIES(0, numrows - 1, 1), "Date", basedate + [Value] * increment)
